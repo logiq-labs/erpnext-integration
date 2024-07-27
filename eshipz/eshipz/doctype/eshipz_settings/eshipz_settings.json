@@ -6,14 +6,17 @@
  "engine": "InnoDB",
  "field_order": [
   "enabled",
-  "api_token"
+  "api_token",
+  "column_break_sskf",
+  "enable_allocation"
  ],
  "fields": [
   {
    "default": "0",
+   "description": "Enable to Configure API Token",
    "fieldname": "enabled",
    "fieldtype": "Check",
-   "label": "Enabled"
+   "label": "Enable"
   },
   {
    "depends_on": "enabled",
@@ -21,12 +24,24 @@
    "fieldtype": "Data",
    "label": "API Token",
    "mandatory_depends_on": "enabled"
+  },
+  {
+   "fieldname": "column_break_sskf",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "depends_on": "enabled",
+   "description": "Enable Allocation for eShipz Rule based shipment",
+   "fieldname": "enable_allocation",
+   "fieldtype": "Check",
+   "label": "Enable Allocation"
   }
  ],
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2024-07-25 00:49:09.735893",
+ "modified": "2024-07-26 11:38:07.216638",
  "modified_by": "Administrator",
  "module": "eShipz",
  "name": "eShipz Settings",
