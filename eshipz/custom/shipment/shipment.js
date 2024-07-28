@@ -1,28 +1,97 @@
 frappe.ui.form.on('Shipment', {
 	refresh: function(frm) {
-	    if (frm.doc.docstatus == 1 && frm.doc.awb_number && frm.doc.fsl_shipment_label_url) {
-		frm.add_custom_button(__('Download / Print Shipment Label'), function() {
-		    window.open(frm.doc.fsl_shipment_label_url, '_blank');
-		}).addClass('btn-primary');
-	    }
 	    if (frm.doc.docstatus == 1 && !frm.doc.awb_number) {
-		frm.add_custom_button(__('Create Shipment'), function() {
+		// Check if enable_allocation is enabled
+		frappe.call({
+		    method: 'frappe.client.get_value',
+		    args: {
+			doctype: 'eShipz Settings',
+			fieldname: 'enable_allocation'
+		    },
+		    callback: function(r) {
+			if (r.message && r.message.enable_allocation == 1) {
+			    frm.add_custom_button(__('Create Shipment'), function() {
+				frappe.call({
+				    method: 'eshipz.custom.shipment.shipment.create_rule_based_shipment',
+				    args: {
+					docname: frm.docname
+				    },
+				    freeze: true,
+				    freeze_message: __('Creating Rule Based Shipment... Please wait...⏳☕'),
+				    callback: function(r) {
+					if (r.message) {
+						frappe.msgprint(__('Rule Based Shipment created successfully...✨🎉'));
+						cur_frm.reload_doc();
+					}
+					else {
+						frappe.msgprint({
+						title: __('Error'),
+						indicator: 'red',
+						message: __('An error occurred while creating Shipment...🤯')
+						});
+					}
+				}
+				});
+			    }).addClass('btn-info').css({'background':'#d35400', 'color':'white'});
+			} else {
+			    frm.add_custom_button(__('Create Shipment'), function() {
+				frappe.call({
+				    method: 'eshipz.custom.shipment.shipment.fetch_available_services',
+				    args: {
+					docname: frm.docname
+				    },
+				    freeze: true,
+				    freeze_message: __('Getting available services... Please wait...⏳☕'),
+				    callback: function(r) {
+					if (r.message) {
+					    show_service_popup(r.message);
+					}
+				    }
+				});
+			    }).addClass('btn-info').css({'background':'#239b56', 'color':'white'});
+			}
+		    }
+		});
+	    }
+	    if (frm.doc.docstatus == 1 && frm.doc.awb_number && frm.doc.status != 'Cancelled') {
+		frm.add_custom_button(__('Download/Print Label'), function() {
+		    window.open(frm.doc.tracking_url, '_blank');
+		}).addClass('btn-primary').css({'background':'#21618c', 'color':'white'});
+		frm.add_custom_button(__('Cancel Shipment'), function() {
 		    frappe.call({
-			method: 'eshipz.custom.shipment.shipment.fetch_available_services',
+			method: 'eshipz.custom.shipment.shipment.cancel_shipment',
 			args: {
 			    docname: frm.docname
 			},
+			freeze: true,
+			freeze_message: __('Cancelling Shipment... Please wait...⏳☕'),
 			callback: function(r) {
 			    if (r.message) {
-				show_service_popup(r.message);
+				frappe.msgprint(__('Shipment Cancelled'));
+				frm.reload_doc();
 			    }
 			}
 		    });
-		}).addClass('btn-primary');
+		}).addClass('btn-danger');
+		frm.add_custom_button(__('Update Status'), function() {
+		    frappe.call({
+			method: 'eshipz.custom.shipment.shipment.update_status',
+			args: {
+			    docname: frm.docname
+			},
+			freeze: true,
+			freeze_message: __('Getting Status... Please wait...⏳☕'),
+			callback: function(r) {
+			    if (r.message) {
+				frappe.msgprint(__('Status Updated'));
+				frm.reload_doc();
+			    }
+			}
+		    });
+		}).addClass('btn-info').css({'background':'#239b56', 'color':'white'});
 	    }
 	}
     });
-    
     
     function show_service_popup(services) {
 	let header_columns = ["Service Type", "Description", "Slug", "Vendor ID"];
@@ -37,14 +106,14 @@ frappe.ui.form.on('Shipment', {
 			    </tr>
 			</thead>
 			<tbody>
-			    ${services.map((service, index) => service.technicality.map(t => `
-				<tr id="service-${index}-${t.service_type}">
-				    <td class="service-info" style="width:20%;">${t.service_type}</td>
+			    ${services.map((service, index) => service.technicality.map((tech, techIndex) => `
+				<tr id="service-${index}-${techIndex}">
+				    <td class="service-info" style="width:20%;">${tech.service_type}</td>
 				    <td class="service-info" style="width:20%;">${service.description}</td>
 				    <td class="service-info" style="width:20%;">${service.slug}</td>
 				    <td class="service-info" style="width:20%;">${service.vendor_id}</td>
 				    <td style="width:10%;vertical-align: middle;">
-					<button data-service='${JSON.stringify({...service, selected_service_type: t.service_type})}' type="button" class="btn btn-primary select-service-btn">${__("Select")}</button>
+					<button data-service='${JSON.stringify(service)}' data-service-type='${tech.service_type}' type="button" class="btn btn-info select-service-btn">${__("Select")}</button>
 				    </td>
 				</tr>
 			    `).join('')).join('')}
@@ -55,7 +124,7 @@ frappe.ui.form.on('Shipment', {
 	    <style type="text/css" media="screen">
 		.modal-dialog { width: 750px; }
 		.service-info { vertical-align: middle !important; padding-left: 12px !important; }
-		.btn:hover { background-color: #dedede; }
+		.btn:hover { background-color: #28b463; }
 		.ship { font-size: 16px; }
 	    </style>
 	`;
@@ -71,7 +140,9 @@ frappe.ui.form.on('Shipment', {
     
 	d.$wrapper.on('click', '.select-service-btn', function() {
 	    let service = $(this).data('service');
-	    console.log('Selected Service:', service);
+	    let service_type = $(this).data('service-type');
+	    service.selected_service_type = service_type;
+    
 	    frappe.call({
 		method: 'eshipz.custom.shipment.shipment.create_shipment',
 		args: {
@@ -94,6 +165,7 @@ frappe.ui.form.on('Shipment', {
 		}
 		}
 	    });
+    
 	    d.hide();
 	});
     

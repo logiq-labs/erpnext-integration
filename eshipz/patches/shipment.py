@@ -36,10 +36,28 @@ def execute():
                 default = "residential"
             ),
             dict(
-                fieldname = "fsl_shipment_label_url",
-                fieldtype = "Data",
-                label = "Shipment Label URL",
-                insert_after = "awb_number",
+                fieldname = "fsl_latest_location",
+                fieldtype = "Datetime",
+                label = "Delivery Date",
+                insert_after = "tracking_status_info",
+            ),
+            dict(
+                fieldname = "fsl_expected_delivery_date",
+                fieldtype = "Datetime",
+                label = "Expected Delivery Date",
+                insert_after = "fsl_latest_location",
+            ),
+            dict(
+                fieldname = "fsl_delivery_date",
+                fieldtype = "Datetime",
+                label = "Delivery Date",
+                insert_after = "fsl_expected_delivery_date",
+            ),
+            dict(
+                fieldname = "fsl_last_update_received",
+                fieldtype = "Datetime",
+                label = "Last Update Received",
+                insert_after = "tracking_url",
             ),
         ]
     }
