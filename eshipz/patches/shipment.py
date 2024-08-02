@@ -12,7 +12,7 @@ def execute():
                 fieldname = "fsl_purpose",
                 fieldtype = "Select",
                 label = "Purpose",
-                options = "\npersonal\ncommercial\nsample\nreturn\nrepair\ngift'",
+                options = "\npersonal\ncommercial\nsample\nreturn\nrepair\ngift",
                 insert_after = "pickup_company",
                 reqd = 1,
                 default = "commercial"
@@ -24,7 +24,7 @@ def execute():
                 options = "\nbusiness\nresidential",
                 insert_after = "fsl_purpose",
                 reqd = 1,
-                default = "residential"
+                default = "business"
             ),
             dict(
                 fieldname = "fsl_delivery_type",
@@ -33,12 +33,12 @@ def execute():
                 options = "\nbusiness\nresidential",
                 insert_after = "delivery_customer",
                 reqd = 1,
-                default = "residential"
+                default = "business"
             ),
             dict(
                 fieldname = "fsl_latest_location",
-                fieldtype = "Datetime",
-                label = "Delivery Date",
+                fieldtype = "Data",
+                label = "Latest location",
                 insert_after = "tracking_status_info",
             ),
             dict(
@@ -62,3 +62,4 @@ def execute():
         ]
     }
     create_custom_fields(custom_field)
+    make_property_setter("Batch", "expiry_date", "reqd", 1, "Check")
