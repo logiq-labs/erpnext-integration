@@ -117,12 +117,13 @@ def fetch_available_services(docname):
     else:
         frappe.throw("Failed to fetch services: " + response.text)
 
-
 @frappe.whitelist()
-def create_shipment(docname, selected_service):
+def create_shipment(docname, selected_service, item_data=None):
     doc = frappe.get_doc('Shipment', docname)
     
     selected_service = json.loads(selected_service)
+    if item_data:
+        item_data = json.loads(item_data)
 
     pickup_address = frappe.get_doc('Address', doc.pickup_address_name)
     delivery_address = frappe.get_doc('Address', doc.delivery_address_name)
@@ -146,23 +147,40 @@ def create_shipment(docname, selected_service):
 
     charged_weight = sum(parcel.weight for parcel in doc.get("shipment_parcel"))
 
-    customer_reference = doc.shipment_delivery_note[0].delivery_note if doc.shipment_delivery_note else ""
     invoice_numbers = set()
     invoice_dates = set()
-    consolidated_items = defaultdict(lambda: {"weight": 0})
+    consolidated_items = defaultdict(lambda: {"weight": 0, "amount": 0})
+    gst_invoices = []
 
+    total_order_value = 0
 
     for dn in doc.get("shipment_delivery_note"):
         delivery_note = frappe.get_doc('Delivery Note', dn.delivery_note)
         for item in delivery_note.items:
             if item.against_sales_invoice:
-                invoice_numbers.add(item.against_sales_invoice)
-                invoice_date = frappe.get_value("Sales Invoice", item.against_sales_invoice, "posting_date")
-                invoice_currency = frappe.get_value("Sales Invoice", item.against_sales_invoice, "currency")
+                invoice_number = item.against_sales_invoice
+                invoice_numbers.add(invoice_number)
+                invoice_date = frappe.get_value("Sales Invoice", invoice_number, "posting_date")
+                invoice_currency = frappe.get_value("Sales Invoice", invoice_number, "currency")
+                invoice_value = frappe.get_value("Sales Invoice", invoice_number, "grand_total")
+                ewaybill_number = frappe.get_value("Sales Invoice", invoice_number, "ewaybill")
+                if ewaybill_number:
+                    ewaybill_date = frappe.get_value('e-Waybill Log', ewaybill_number, 'created_on')
+                else:
+                    ewaybill_number = ""
+                    ewaybill_date = ""
                 invoice_dates.add(str(invoice_date))
             item_key = (item.item_name, item.uom, item.gst_hsn_code, item.qty, item.amount)
             consolidated_items[item_key]["weight"] += item.qty if item.uom == "Kg" else 1
+            consolidated_items[item_key]["amount"] += item.amount
 
+    gst_invoices.append({
+                    "invoice_number": invoice_number,
+                    "invoice_date": str(invoice_date),
+                    "invoice_value": invoice_value,
+                    "ewaybill_number": ewaybill_number,
+                    "ewaybill_date": str(ewaybill_date)
+                })
     items = [
         {
             "description": item_key[0],
@@ -172,7 +190,7 @@ def create_shipment(docname, selected_service):
             "variant": "",
             "quantity": item_key[3],
             "price": {
-                "amount": 100, #Need to change value
+                "amount": item_info["amount"],
                 "currency": invoice_currency
             },
             "weight": {
@@ -181,6 +199,54 @@ def create_shipment(docname, selected_service):
             }
         } for item_key, item_info in consolidated_items.items()
     ]
+
+    parcels = []
+    for parcel in doc.get("shipment_parcel"):
+        parcel_items = items
+        parcel_order_value = 0
+        if item_data:
+            parcel_items = []
+            for item in item_data[str(parcel.idx)]:
+                item_key = (item["item_name"], item["uom"], item["gst_hsn_code"], item["qty"], item["amount"])
+                parcel_order_value += item["amount"]
+                parcel_items.append({
+                    "description": item["item_name"],
+                    "origin_country": pickup_country_code,
+                    "sku": item["uom"],
+                    "hs_code": item["gst_hsn_code"],
+                    "variant": "",
+                    "quantity": item["qty"],
+                    "price": {
+                        "amount": item["amount"],
+                        "currency": invoice_currency
+                    },
+                    "weight": {
+                        "value": item.get("weight", 0),
+                        "unit": "kg"
+                    }
+                })
+        else:
+            for item in consolidated_items.keys():
+                parcel_order_value += consolidated_items[item]["amount"]
+
+        parcels.append({
+            "description": doc.description_of_content,
+            "box_type": doc.shipment_type,
+            "quantity": parcel.count,
+            "weight": {
+                "value": parcel.weight,
+                "unit": "kg"
+            },
+            "dimension": {
+                "width": parcel.width,
+                "height": parcel.height,
+                "length": parcel.length,
+                "unit": "cm"
+            },
+            "items": parcel_items,
+            "order_value": parcel_order_value
+        })
+        total_order_value += parcel_order_value
 
     data = {
         "billing": {
@@ -198,7 +264,7 @@ def create_shipment(docname, selected_service):
             "unit": "KG",
             "value": charged_weight
         },
-        "customer_reference": customer_reference,
+        "customer_reference": doc.name,
         "invoice_number": ", ".join(invoice_numbers),
         "invoice_date": ", ".join(invoice_dates),
         "is_cod": False,
@@ -247,25 +313,9 @@ def create_shipment(docname, selected_service):
             },
             "is_reverse": False,
             "is_to_pay": False,
-            "parcels": [
-                {
-                    "description": doc.description_of_content,
-                    "box_type": doc.shipment_type,
-                    "quantity": parcel.count,
-                    "weight": {
-                        "value": parcel.weight,
-                        "unit": "kg"
-                    },
-                    "dimension": {
-                        "width": parcel.width,
-                        "height": parcel.height,
-                        "length": parcel.length,
-                        "unit": "cm"
-                    },
-                    "items": items
-                } for parcel in doc.get("shipment_parcel")
-            ]
-        }
+            "parcels": parcels
+        },
+        "gst_invoices": gst_invoices
     }
 
     json_data = json.dumps(data, separators=(',', ':'), default=lambda x: str(x).lower() if isinstance(x, bool) else x)
@@ -281,7 +331,6 @@ def create_shipment(docname, selected_service):
             tracking_status_info = result['data']['status']
             carrier_service = result['data']['service_type']
             shipment_id = result['data']['order_id']
-
 
             doc.db_set('tracking_url', label_url)
             doc.db_set('awb_number', awb_number)
@@ -299,9 +348,12 @@ def create_shipment(docname, selected_service):
         frappe.throw("Failed to create shipment: " + response.text)
 
 @frappe.whitelist()
-def create_rule_based_shipment(docname):
+def create_rule_based_shipment(docname, item_data=None):
     doc = frappe.get_doc('Shipment', docname)
     
+    if item_data:
+        item_data = json.loads(item_data)
+
     pickup_address = frappe.get_doc('Address', doc.pickup_address_name)
     delivery_address = frappe.get_doc('Address', doc.delivery_address_name)
     
@@ -324,23 +376,40 @@ def create_rule_based_shipment(docname):
 
     charged_weight = sum(parcel.weight for parcel in doc.get("shipment_parcel"))
 
-    customer_reference = doc.shipment_delivery_note[0].delivery_note if doc.shipment_delivery_note else ""
     invoice_numbers = set()
     invoice_dates = set()
-    consolidated_items = defaultdict(lambda: {"weight": 0})
+    consolidated_items = defaultdict(lambda: {"weight": 0, "amount": 0})
+    gst_invoices = []
 
+    total_order_value = 0
 
     for dn in doc.get("shipment_delivery_note"):
         delivery_note = frappe.get_doc('Delivery Note', dn.delivery_note)
         for item in delivery_note.items:
             if item.against_sales_invoice:
-                invoice_numbers.add(item.against_sales_invoice)
-                invoice_date = frappe.get_value("Sales Invoice", item.against_sales_invoice, "posting_date")
-                invoice_currency = frappe.get_value("Sales Invoice", item.against_sales_invoice, "currency")
+                invoice_number = item.against_sales_invoice
+                invoice_numbers.add(invoice_number)
+                invoice_date = frappe.get_value("Sales Invoice", invoice_number, "posting_date")
+                invoice_currency = frappe.get_value("Sales Invoice", invoice_number, "currency")
+                invoice_value = frappe.get_value("Sales Invoice", invoice_number, "grand_total")
+                ewaybill_number = frappe.get_value("Sales Invoice", invoice_number, "ewaybill")
+                if ewaybill_number:
+                    ewaybill_date = frappe.get_value('e-Waybill Log', ewaybill_number, 'created_on')
+                else:
+                    ewaybill_number = ""
+                    ewaybill_date = ""
                 invoice_dates.add(str(invoice_date))
             item_key = (item.item_name, item.uom, item.gst_hsn_code, item.qty, item.amount)
             consolidated_items[item_key]["weight"] += item.qty if item.uom == "Kg" else 1
+            consolidated_items[item_key]["amount"] += item.amount
 
+    gst_invoices.append({
+                    "invoice_number": invoice_number,
+                    "invoice_date": str(invoice_date),
+                    "invoice_value": invoice_value,
+                    "ewaybill_number": ewaybill_number,
+                    "ewaybill_date": str(ewaybill_date)
+                })
     items = [
         {
             "description": item_key[0],
@@ -350,7 +419,7 @@ def create_rule_based_shipment(docname):
             "variant": "",
             "quantity": item_key[3],
             "price": {
-                "amount": 100, #Need to change value
+                "amount": item_info["amount"],
                 "currency": invoice_currency
             },
             "weight": {
@@ -360,12 +429,60 @@ def create_rule_based_shipment(docname):
         } for item_key, item_info in consolidated_items.items()
     ]
 
+    parcels = []
+    for parcel in doc.get("shipment_parcel"):
+        parcel_items = items
+        parcel_order_value = 0
+        if item_data:
+            parcel_items = []
+            for item in item_data[str(parcel.idx)]:
+                item_key = (item["item_name"], item["uom"], item["gst_hsn_code"], item["qty"], item["amount"])
+                parcel_order_value += item["amount"]
+                parcel_items.append({
+                    "description": item["item_name"],
+                    "origin_country": pickup_country_code,
+                    "sku": item["uom"],
+                    "hs_code": item["gst_hsn_code"],
+                    "variant": "",
+                    "quantity": item["qty"],
+                    "price": {
+                        "amount": item["amount"],
+                        "currency": invoice_currency
+                    },
+                    "weight": {
+                        "value": item.get("weight", 0),
+                        "unit": "kg"
+                    }
+                })
+        else:
+            for item in consolidated_items.keys():
+                parcel_order_value += consolidated_items[item]["amount"]
+
+        parcels.append({
+            "description": doc.description_of_content,
+            "box_type": doc.shipment_type,
+            "quantity": parcel.count,
+            "weight": {
+                "value": parcel.weight,
+                "unit": "kg"
+            },
+            "dimension": {
+                "width": parcel.width,
+                "height": parcel.height,
+                "length": parcel.length,
+                "unit": "cm"
+            },
+            "items": parcel_items,
+            "order_value": parcel_order_value
+        })
+        total_order_value += parcel_order_value
+
     data = {
         "billing": {
             "paid_by": "shipper"
         },
         "vendor_id": None,
-        "description": "BlueDart",
+        "description": "Bluedart",
         "slug": None,
         "purpose": doc.fsl_purpose,
         "order_source": "manual",
@@ -376,7 +493,7 @@ def create_rule_based_shipment(docname):
             "unit": "KG",
             "value": charged_weight
         },
-        "customer_reference": customer_reference,
+        "customer_reference": doc.name,
         "invoice_number": ", ".join(invoice_numbers),
         "invoice_date": ", ".join(invoice_dates),
         "is_cod": False,
@@ -425,25 +542,9 @@ def create_rule_based_shipment(docname):
             },
             "is_reverse": False,
             "is_to_pay": False,
-            "parcels": [
-                {
-                    "description": doc.description_of_content,
-                    "box_type": doc.shipment_type,
-                    "quantity": parcel.count,
-                    "weight": {
-                        "value": parcel.weight,
-                        "unit": "kg"
-                    },
-                    "dimension": {
-                        "width": parcel.width,
-                        "height": parcel.height,
-                        "length": parcel.length,
-                        "unit": "cm"
-                    },
-                    "items": items
-                } for parcel in doc.get("shipment_parcel")
-            ]
-        }
+            "parcels": parcels
+        },
+        "gst_invoices": gst_invoices
     }
 
     json_data = json.dumps(data, separators=(',', ':'), default=lambda x: str(x).lower() if isinstance(x, bool) else x)
@@ -459,7 +560,6 @@ def create_rule_based_shipment(docname):
             tracking_status_info = result['data']['status']
             carrier_service = result['data']['service_type']
             shipment_id = result['data']['order_id']
-
 
             doc.db_set('tracking_url', label_url)
             doc.db_set('awb_number', awb_number)
@@ -525,9 +625,7 @@ def update_status(docname):
     }
 
     data = {
-        "track_id": [
-            doc.awb_number,
-        ]
+        "track_id": doc.awb_number
     }
 
     response = requests.post(url, headers=headers, json=data)
@@ -577,7 +675,7 @@ def update_status(docname):
             doc.db_set('fsl_expected_delivery_date', expected_delivery_date_erp)
 
         last_update_received = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        doc.db_set('last_update_received', last_update_received)
+        doc.db_set('fsl_last_update_received', last_update_received)
         doc.db_set('tracking_status_info', latest_remark)
         frappe.db.commit()
 
@@ -595,3 +693,14 @@ def update_status(docname):
         }
     else:
         frappe.throw("Failed to retrieve shipment status: " + response.text)
+
+@frappe.whitelist()
+def get_delivery_note_items(delivery_note):
+    if not frappe.has_permission('Delivery Note', 'read', delivery_note):
+        raise frappe.PermissionError
+    
+    items = frappe.get_all('Delivery Note Item',
+        filters={'parent': delivery_note},
+        fields=['item_name', 'qty', 'uom', 'gst_hsn_code', 'amount']
+    )
+    return items
