@@ -7,6 +7,7 @@ A Shipping Integration for ERPNext with eShipz Platform
 * Parcel Dimensions Templates: Use predefined templates for parcel dimensions to streamline the shipment process.
 * Shipment Tracking: Track your shipments within ERPNext.
 * Shipment Status Update: Automatically update the shipment status within the Shipment DocType.
+  
 ## Setup
 ### API Key Setup:
 1. Obtain an API key from your eShipz account.
@@ -16,6 +17,7 @@ A Shipping Integration for ERPNext with eShipz Platform
 ### Rule-Based Shipment Setup:
 1. Obtain necessary access from eShipz for rule-based shipment creation.
 2. Enable Allocation in eShipz Settings within ERPNext.
+   
 ### Shipment Creation
 1. Create Sales Invoice: Generate a sales invoice for the order. If necessary, create an eWay bill.
 2. Create Delivery Note: Generate a delivery note against the sales invoice.
@@ -34,6 +36,7 @@ A Shipping Integration for ERPNext with eShipz Platform
 ### Rule-Based Shipment Creation
 Enable Allocation: Ensure Allocation is enabled in eShipz Settings.
 Follow Steps 1 to 5 from Shipment Creation: Follow the initial steps to create a shipment, as outlined above.
+
 6. Create Rule-Based Shipment: Click on the 'Create Rule Based Shipment button. Select the items for each parcel and submit the shipment for creation.
 
 7. Manage Shipment: Use the available buttons to download or print the shipping label, cancel the shipment, track the shipment, and update the shipment status.
