@@ -133,6 +133,12 @@ doctype_js = {
 # 	}
 # }
 
+doc_events = {
+    "Sales Invoice": {
+        "before_submit": "eshipz.custom.sales_invoice.sales_invoice.update_delivery_note"
+    }
+}
+
 # Scheduled Tasks
 # ---------------
 
