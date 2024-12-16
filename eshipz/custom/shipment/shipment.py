@@ -244,7 +244,7 @@ def create_shipment(docname, selected_service, item_data=None):
                 "unit": "cm"
             },
             "items": parcel_items,
-            "order_value": parcel_order_value
+            #"order_value": parcel_order_value
         })
         total_order_value += parcel_order_value
 
