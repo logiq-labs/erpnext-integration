@@ -111,7 +111,11 @@ def fetch_available_services(docname):
     if response.status_code == 200:
         result = response.json()
         if 'rates' in result['data']:
-            return result['data']['rates']
+            rates_list = result['data']['rates']
+            if rates_list:
+                return [rate for rate in rates_list if rate.get('code') in [200, 201]]
+                    
+            frappe.throw("Failed to fetch services: " + response.text)
         else:
             frappe.throw("Rates key not found in API response: " + frappe.as_json(result))
     else:
