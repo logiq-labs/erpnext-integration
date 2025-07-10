@@ -1,4 +1,4 @@
-# eShipz ERPNext Integration
+# eShipz ERPNext Integration [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/logiq-labs/erpnext-integration)
 A Shipping Integration for ERPNext with eShipz Platform
 ## Features
 * Creation of Shipment by Selecting the Service: Easily create shipments by selecting the desired service from eShipz.
